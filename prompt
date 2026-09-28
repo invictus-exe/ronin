@@ -1,0 +1,245 @@
+You are the lead privacy engineer, cryptography-aware systems architect, and security engineer for [PRODUCT_NAME], a chat application designed for strong anonymity.
+
+The goal is not merely to hide a real name behind a username. Design for unlinkability between a person, device, network connection, account, conversation, and message wherever technically feasible. Do not claim “perfect anonymity” or “untraceability”; define the exact adversary model and state what the system still cannot protect against.
+
+Do not start coding immediately. First inspect the repository and produce:
+
+1. A proposed architecture and implementation plan.
+2. A data-flow diagram showing every trust boundary.
+3. `docs/strong-anonymity-threat-model.md` covering:
+   - what the application protects;
+   - what the hosting provider, relay operator, push provider, CDN, database operator, moderator, compromised client, malicious user, ISP, and global passive observer can see;
+   - linkability risks across sessions, devices, rooms, messages, timing, IP addresses, notification tokens, and recovery flows;
+   - abuse, Sybil, spam, traffic-analysis, endpoint-compromise, and denial-of-service threats;
+   - explicit non-goals and residual risks;
+   - launch-blocking risks.
+4. `docs/metadata-inventory.md` listing every collected, derived, transmitted, cached, logged, and retained field, including timestamps, IP data, headers, connection identifiers, push tokens, device identifiers, error traces, and moderation evidence.
+5. A written decision about whether the current repository can support strong anonymity or needs architectural changes.
+
+Wait for approval before implementing major architectural changes.
+
+## Core anonymity requirements
+
+### No identity and no recovery linkage by default
+
+- No legal name, email address, phone number, government ID, social login, contact-book upload, advertising ID, payment identity, or mandatory recovery channel.
+- Do not require an account that is globally stable across contexts.
+- Use locally generated cryptographic identities and random aliases.
+- Do not expose sequential IDs, account creation time, presence precision, profile metadata, or stable public identifiers.
+- Separate identities by conversation or context by default so activity cannot be trivially correlated.
+- Explain that losing a local key may permanently lose access; do not add recovery that undermines anonymity unless the user explicitly opts into the linkability tradeoff.
+- Never use security questions, phone verification, email magic links, or “trusted device” fingerprints in the anonymous path.
+
+### End-to-end encryption
+
+- Use a mature, independently reviewed protocol or library. Do not invent cryptography, key exchange, ratchets, padding, authentication, or group-encryption schemes.
+- Message plaintext must be created and decrypted only on authorized clients.
+- The server must not possess the keys required to decrypt message content.
+- Encrypt attachments client-side before upload and use short-lived, unguessable object references.
+- Authenticate all encrypted messages and prevent replay, reflection, downgrade, and group-membership confusion.
+- Provide safety-number, QR, or equivalent key-verification UX where appropriate.
+- Document device compromise, malicious-client, backup, screenshot, notification-preview, and lost-key limitations.
+- Disable plaintext push notification content. Prefer a generic wake-up signal or no push notifications in the strongest mode.
+
+### Network and metadata protection
+
+Strong anonymity requires more than E2EE. Design a network layer that does not give the application server a direct, durable mapping between a user and their activity.
+
+- Do not send the client’s real IP address to the chat service where avoidable.
+- Do not use ordinary application-server WebSockets as the only anonymity layer.
+- Evaluate an established anonymity transport such as an onion-routing design, privacy relay, or mixnet. Do not implement a custom anonymity network.
+- If using relays, separate entry and service knowledge so no single ordinary service component can trivially link source IP to destination, identity, and message timing.
+- Minimize timing precision, connection identifiers, packet-size fingerprints, headers, TLS/session correlation, and observable presence.
+- Use batching, padding, cover traffic, or delayed delivery only when the chosen protocol supports them safely and the performance/cost impact is documented.
+- Avoid typing indicators, exact read receipts, online presence, precise delivery times, contact discovery, global search, and behavioral recommendations in the strongest mode.
+- Do not use third-party analytics, crash reporting, ad SDKs, remote fonts, social widgets, or externally hosted assets that create tracking or referrer leakage.
+- Self-host or privacy-review every external service. Document what each provider can observe.
+- Do not log raw IP addresses, full user agents, unique connection IDs, message IDs that enable cross-context correlation, message bodies, encryption keys, notification tokens, or precise event times.
+- Use coarse, privacy-preserving operational metrics or no metrics. Any exception must have a purpose, retention limit, access policy, and anonymity analysis.
+- Ensure reverse proxies, load balancers, CDNs, access logs, APM tools, error reporters, database audit logs, and backups follow the same policy. Application-level redaction alone is insufficient.
+
+### Anonymous abuse prevention
+
+Do not solve abuse by requiring identity. Implement layered, privacy-preserving controls:
+
+- anonymous rate limits using short-lived, scoped, non-linkable capabilities;
+- invitation or proof-of-work options where appropriate;
+- per-room quotas and message-size limits;
+- abuse throttling that does not create a permanent global user identifier;
+- block and mute locally and server-side where possible;
+- user-initiated reporting with explicit disclosure of exactly what evidence leaves the device;
+- moderator review using the minimum evidence necessary;
+- no hidden moderator backdoor and no universal decryption key;
+- audited privileged access for any moderation metadata;
+- defenses against replay, spam, automation, Sybil attacks, room enumeration, and denial of service;
+- safe link handling and strict content sanitization;
+- clear separation between anonymous participation and any optional, explicitly consented safety escalation.
+
+If moderation requires message content, implement a user-controlled report bundle that is encrypted for the moderation process and clearly disclosed. Do not silently weaken E2EE or anonymity.
+
+## Privacy-preserving product scope
+
+For the first implementation, prioritize a small, defensible feature set:
+
+- local key generation;
+- anonymous onboarding with no PII;
+- invite-based one-to-one and small-group conversations;
+- client-side E2EE;
+- context-separated identities;
+- encrypted local message storage;
+- generic or opt-in notifications without message content;
+- local block/mute;
+- user-controlled report flow;
+- disappearing messages with a clear warning that recipients can copy or photograph content;
+- a privacy dashboard showing what is stored, where, for how long, and who can see it;
+- complete local account/key deletion;
+- documented server-side deletion and retention behavior.
+
+Do not add public profiles, public discovery, global search, contact syncing, exact presence, typing indicators, read receipts, recommendation feeds, ad tracking, third-party login, or mandatory account recovery unless the threat model is updated and the anonymity impact is approved.
+
+## Secure implementation
+
+Use the repository’s existing conventions. If greenfield, use a typed stack with a minimal server, a privacy-reviewed cryptographic library, and a database that stores only the minimum opaque routing and delivery state. Do not substitute a conventional authenticated chat architecture and call it anonymous.
+
+Implement:
+
+- strict server-side schema validation;
+- least-privilege service and database roles;
+- authorization for every conversation, key, relay, attachment, and realtime operation;
+- secure random values from the platform CSPRNG;
+- replay protection, nonce discipline, and key rotation through the chosen protocol;
+- secure headers and restrictive CORS;
+- protection against XSS, CSRF where relevant, SSRF, SQL injection, path traversal, command injection, open redirects, mass assignment, and unsafe deserialization;
+- encrypted client storage with platform-appropriate protections;
+- no secrets or private keys in source control, logs, crash reports, or analytics;
+- generic errors that do not reveal account, room, or membership existence;
+- fail-closed behavior when key, relay, authorization, or privacy checks fail;
+- dependency pinning and security auditing;
+- safe migrations with rollback plans.
+
+Create or update `CLAUDE.md` with concise project rules, commands, privacy invariants, and security-sensitive files. Keep it short and link to the detailed docs.
+
+## UX and copy
+
+The UI must make the anonymity model understandable:
+
+- say “strong anonymity” only where the specific mode supports it;
+- distinguish client-side privacy, server privacy, relay privacy, and protection from global traffic analysis;
+- show users which identity/context they are using before sending;
+- warn before joining a room or sharing content that may identify them;
+- make key verification understandable and optional only when the threat model permits it;
+- warn that screenshots, compromised devices, malicious recipients, and endpoint malware are outside the system’s control;
+- explain that lost local keys may be unrecoverable;
+- explain exactly what a report sends;
+- provide accessible keyboard navigation, focus states, contrast, reduced motion, localization, and low-bandwidth behavior;
+- avoid dark patterns and avoid wording such as “100% anonymous,” “untraceable,” or “military-grade” unless independently substantiated.
+
+## Verification requirements
+
+Before declaring completion, add tests and checks for:
+
+1. Plaintext never reaches the server, logs, analytics, push payloads, error reports, or database.
+2. A server operator cannot decrypt message content with ordinary production credentials.
+3. Context-separated identities cannot be trivially correlated through IDs, timestamps, handles, presence, or API behavior.
+4. No endpoint reveals whether an identity, room, or recipient exists beyond what is necessary.
+5. IP addresses and connection metadata are absent, minimized, or protected by the selected relay design.
+6. Push notifications contain no message content or stable tracking identifier.
+7. WebSocket, relay, attachment, and invite authorization cannot be bypassed.
+8. Replay, duplicate-send, downgrade, nonce-reuse, and stale-key cases fail safely.
+9. Block, mute, deletion, disappearing messages, and report behavior work under reconnects and races.
+10. Logs and third-party tooling contain no sensitive content or correlating identifiers.
+11. Retention and deletion jobs are real, tested, auditable, and reflected in documentation.
+12. The final privacy notice matches the implementation.
+
+Run formatter, linter, type checker, unit tests, integration tests, build, dependency audit, secret scan, and a focused security review. Add regression tests for every discovered issue. Do not mark the work complete with failing security tests.
+
+## Required deliverables
+
+- implemented strong-anonymity MVP or a clear architecture proof-of-concept;
+- `docs/strong-anonymity-threat-model.md`;
+- `docs/metadata-inventory.md`;
+- `docs/cryptography-and-key-management.md`;
+- `docs/network-anonymity-design.md`;
+- `docs/abuse-and-moderation-design.md`;
+- `docs/security-review.md`;
+- privacy notice and precise in-product anonymity copy;
+- `.env.example` containing names only;
+- migration and local demo instructions;
+- test/security-check results;
+- known limitations and launch-blocking risks;
+- a plan for independent cryptographic, application-security, and privacy review.
+
+Before modifying files, show the plan. Before adding an external service, show its data access and metadata impact. Before destructive migrations or deletion of user data, stop and ask for confirmation. Keep changes reviewable and scoped.
+
+## Research basis
+
+- [Claude Code Security](https://code.claude.com/docs/en/security)
+- [Claude Code project configuration](https://code.claude.com/docs/en/claude-directory)
+- [OWASP Threat Modeling Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Threat_Modeling_Cheat_Sheet.html)
+- [NIST SP 800-154: Guide to Data-Centric System Threat Modeling](https://csrc.nist.gov/pubs/sp/800/154/ipd)
+
+
+# Research-backed hardening addendum
+
+Use this addendum after the main prompt. These requirements are based on the sources listed below and are intended to prevent the implementation from stopping at ordinary TLS plus a hidden username.
+
+## Protocol choices
+
+- For one-to-one messaging, select a mature, reviewed protocol implementation with asynchronous key establishment and ratcheting. Evaluate X3DH/PQXDH plus Double Ratchet or an equivalent reviewed design; do not implement a new ratchet.
+- For groups, evaluate IETF MLS (RFC 9420) or another independently reviewed group protocol. Require correct membership-change commits, removal handling, forward secrecy, and post-compromise security.
+- Use authenticated encryption and a formal key lifecycle. Separate signing, encryption, key-wrapping, and authentication keys. Generate keys with a CSPRNG, store them in platform secure storage or a vault, rotate them, and document compromise recovery.
+- Do not describe generic database encryption, TLS, or password hashing as end-to-end encryption.
+
+## Metadata and delivery
+
+- Add a sealed-sender-like delivery mode: the relay should know the destination needed for delivery but should not receive a durable sender identity when the protocol can avoid it.
+- Use short-lived, scoped delivery capabilities instead of a permanent global abuse identifier.
+- Do not expose exact online status, typing indicators, read receipts, global search, contact discovery, stable cross-context IDs, or precise event timestamps in the strongest anonymity mode.
+- Push payloads must be generic wake-up signals with no plaintext, conversation title, stable tracking identifier, or sender identity.
+- Test all reverse proxies, load balancers, CDN logs, queues, APM, error reporters, database audit logs, backups, and notification providers—not only application logs—for IP, user-agent, timing, device, message, and key leakage.
+
+## Network anonymity
+
+- Do not connect the anonymous client directly to the chat service as the sole privacy layer. Evaluate an established onion-routing or privacy-relay deployment that hides client IP from the application service.
+- Document that low-latency onion routing does not defeat a global observer performing end-to-end timing or size correlation. If the threat model requires stronger resistance, evaluate an established mixnet or batching protocol; do not build one from scratch.
+- Add traffic-shape analysis to the threat model: packet sizes, burst timing, reconnect patterns, circuit rotation, relay choice, presence polling, notification timing, and room activity.
+- Keep the anonymous mode behaviorally uniform. Avoid optional settings that make a small group of users uniquely fingerprintable.
+
+## Privacy-preserving abuse controls
+
+- Evaluate Privacy Pass-style unlinkable authorization tokens for admission, rate limits, or anti-spam. Test issuance/redemption separation, token replay, token hoarding, caching, and collusion risks.
+- Combine anonymous capabilities with per-room quotas, invite controls, bounded message sizes, local block/mute, and user-controlled encrypted reports.
+- Do not create a permanent global user fingerprint, hardware identifier, or hidden “trust score.”
+- Any report must tell the user exactly what evidence leaves the device and to whom it is disclosed.
+
+## Endpoint verification
+
+- Assess the client against OWASP MASVS categories for storage, cryptography, authentication, network communication, platform interaction, privacy, and resilience.
+- Exclude sensitive message databases and keys from ordinary device backups where platform controls permit.
+- Prevent keyboard caching, clipboard leakage, notification previews, screenshots where feasible, crash-report capture, debug logging, and third-party SDK sharing.
+- Treat a web client as a weaker endpoint. Do not place long-term private keys in ordinary browser local storage. If WebAuthn is used for optional local unlock, keep it scoped to the relying party and do not mistake it for an anonymous identity system.
+- Add tests using network capture, filesystem inspection, backup inspection, and log scanning to prove that plaintext, keys, IP addresses, push tokens, and cross-context identifiers are not exposed.
+
+## Launch gates
+
+Do not approve launch until the project has:
+
+1. an independently reviewed cryptographic library and protocol decision;
+2. a tested network-relay/IP protection design;
+3. a complete metadata inventory;
+4. a tested log, backup, notification, and observability policy;
+5. abuse controls that do not require permanent identity tracking;
+6. client endpoint and local-key security tests;
+7. an external application-security and privacy review plan;
+8. precise product language that states the adversary model and residual risks.
+
+## Sources for this addendum
+
+- [Signal protocol specifications](https://signal.org/docs/)
+- [IETF RFC 9420: Messaging Layer Security](https://datatracker.ietf.org/doc/html/rfc9420)
+- [OWASP Cryptographic Storage Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Cryptographic_Storage_Cheat_Sheet.html)
+- [Signal sealed sender](https://signal.org/blog/sealed-sender/)
+- [Tor design paper](https://www.freehaven.net/anonbib/cache/tor-design.pdf)
+- [RFC 9576: Privacy Pass Architecture](https://www.rfc-editor.org/info/rfc9576/)
+- [OWASP MASVS](https://mas.owasp.org/MASVS/)
+- [OWASP Logging Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html)
